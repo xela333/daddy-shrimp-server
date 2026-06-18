@@ -1,140 +1,106 @@
 const { Room } = require("colyseus");
 const { Schema, MapSchema, ArraySchema, defineTypes } = require("@colyseus/schema");
 
-// ---------- world constants (server-authoritative) ----------
 const WORLD = 2600, TOKENS = 90, BOT_FLOOR = 8, MAX_CLIENTS = 24;
-const ROUND_SECONDS = 180, START_VALUE = 4, TICK_HZ = 20;
+const ROUND_SECONDS = 180, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
 const rand = (a, b) => a + Math.random() * (b - a);
 const COLORS = ["#6aa9ff","#a98cff","#5ad1e0","#ffb454","#7bdc8f","#ff8fc7","#ff7d6b"];
 
-// ---------- networked state ----------
 class Player extends Schema {}
-defineTypes(Player, { x:"number", y:"number", value:"number", name:"string", color:"string", alive:"boolean", isBot:"boolean" });
+defineTypes(Player, { x:"number", y:"number", value:"number", name:"string", color:"string", alive:"boolean", isBot:"boolean", hidden:"boolean" });
 class Token extends Schema {}
 defineTypes(Token, { x:"number", y:"number", v:"number", big:"boolean" });
+class Obstacle extends Schema {}
+defineTypes(Obstacle, { x:"number", y:"number", r:"number", kind:"string", v:"number" }); // kind: rock|coral|urchin|anem
+class Jelly extends Schema {}
+defineTypes(Jelly, { x:"number", y:"number" });
 class State extends Schema {}
-defineTypes(State, { players:{map:Player}, tokens:[Token], timeLeft:"number", world:"number" });
+defineTypes(State, { players:{map:Player}, tokens:[Token], obstacles:[Obstacle], jellies:[Jelly], timeLeft:"number", world:"number" });
 
 class ArenaRoom extends Room {
   onCreate(options) {
     this.maxClients = MAX_CLIENTS;
-    this.mode = options?.mode === "practice" ? "practice" : "live";
+    this.mode = options && options.mode === "practice" ? "practice" : "live";
     this.setState(new State());
     this.state.players = new MapSchema();
     this.state.tokens = new ArraySchema();
+    this.state.obstacles = new ArraySchema();
+    this.state.jellies = new ArraySchema();
     this.state.world = WORLD;
     this.state.timeLeft = ROUND_SECONDS;
-    this.targets = {};   // sessionId/botId -> {x,y}
-    this.botWander = {};  // botId -> phase
+    this.targets = {}; this.botWander = {}; this.jvel = []; this.cool = {};
 
-    for (let i = 0; i < TOKENS; i++) this.state.tokens.push(this.makeToken());
+    for (let i=0;i<TOKENS;i++) this.state.tokens.push(this.makeToken());
+    this.genObstacles();
+    for (let i=0;i<10;i++){ const o=new Jelly(); o.x=rand(200,WORLD-200); o.y=rand(200,WORLD-200); this.state.jellies.push(o); const a=rand(0,6.28); this.jvel.push({vx:Math.cos(a)*40, vy:Math.sin(a)*40, ph:rand(0,6.28)}); }
     this.fillBots();
 
-    this.onMessage("input", (client, msg) => {
-      const t = this.targets[client.sessionId];
-      if (t && msg && typeof msg.x === "number" && typeof msg.y === "number") {
-        t.x = Math.max(0, Math.min(WORLD, msg.x));
-        t.y = Math.max(0, Math.min(WORLD, msg.y));
-      }
-    });
-
-    this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_HZ);
-    this._sec = 0;
+    this.onMessage("input",(client,msg)=>{ const t=this.targets[client.sessionId];
+      if(t && msg && typeof msg.x==="number"){ t.x=Math.max(0,Math.min(WORLD,msg.x)); t.y=Math.max(0,Math.min(WORLD,msg.y)); } });
+    this.setSimulationInterval(dt=>this.tick(dt), 1000/TICK_HZ);
+    this._sec=0;
   }
+  obst(kind, n, rmin, rmax, variants){ for(let i=0;i<n;i++){ const o=new Obstacle();
+    o.x=rand(120,WORLD-120); o.y=rand(120,WORLD-120); o.r=rand(rmin,rmax); o.kind=kind; o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); } }
+  genObstacles(){ this.obst("rock",16,60,120,5); this.obst("coral",12,50,95,3); this.obst("urchin",12,40,70,2); this.obst("anem",18,75,120,3); this.obst("kelp",22,80,150,5); }
+  makeToken(){ const big=Math.random()<0.12; const tk=new Token(); tk.x=rand(0,WORLD); tk.y=rand(0,WORLD); tk.v=big?rand(1,3):0.1; tk.big=big; return tk; }
+  addPlayer(id,name,isBot){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
+    p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false;
+    this.state.players.set(id,p); this.targets[id]={x:p.x,y:p.y}; this.cool[id]=0; return p; }
+  fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
+    while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; n++; } }
+  onJoin(client,options){ this.addPlayer(client.sessionId, options&&options.name, false); }
+  onLeave(client){ this.state.players.delete(client.sessionId); delete this.targets[client.sessionId]; delete this.cool[client.sessionId]; }
+  respawn(p){ p.alive=true; p.value=START_VALUE; p.x=rand(60,WORLD-60); p.y=rand(60,WORLD-60); }
 
-  makeToken() {
-    const big = Math.random() < 0.12;
-    const tk = new Token(); tk.x = rand(0, WORLD); tk.y = rand(0, WORLD); tk.v = big ? rand(1, 3) : 0.1; tk.big = big;
-    return tk;
-  }
-  addPlayer(id, name, isBot) {
-    const p = new Player();
-    p.x = rand(WORLD*0.3, WORLD*0.7); p.y = rand(WORLD*0.3, WORLD*0.7);
-    p.value = START_VALUE; p.name = (name || (isBot ? "Shrimpbot" : "Shrimp")).slice(0, 16);
-    p.color = COLORS[(Math.random()*COLORS.length)|0]; p.alive = true; p.isBot = !!isBot;
-    this.state.players.set(id, p); this.targets[id] = { x: p.x, y: p.y };
-    return p;
-  }
-  fillBots() {
-    let n = 0; this.state.players.forEach(() => n++);
-    let bi = 0;
-    while (n < BOT_FLOOR) { const id = "bot_" + (bi++) + "_" + Date.now()%9999; this.addPlayer(id, null, true); this.botWander[id] = Math.random()*6.28; n++; }
-  }
-
-  onJoin(client, options) { this.addPlayer(client.sessionId, options?.name, false); }
-  onLeave(client) { this.state.players.delete(client.sessionId); delete this.targets[client.sessionId]; }
-
-  respawn(p) { p.alive = true; p.value = START_VALUE; p.x = rand(60, WORLD-60); p.y = rand(60, WORLD-60); }
-
-  tick(dt) {
-    const d = dt / 1000;
-    // round timer
-    this._sec += d;
-    if (this._sec >= 1) { this._sec -= 1; this.state.timeLeft = Math.max(0, this.state.timeLeft - 1); if (this.state.timeLeft <= 0) this.endRound(); }
-
-    const players = this.state.players;
-    // bots: pick targets (chase smaller / flee bigger / wander)
-    players.forEach((b, id) => {
-      if (!b.isBot || !b.alive) return;
-      const tgt = this.targets[id];
-      this.botWander[id] = (this.botWander[id] || 0) + 0.03;
-      let nx = b.x + Math.cos(this.botWander[id]) * 200, ny = b.y + Math.sin(this.botWander[id]*1.3) * 200;
-      let best = 240*240, fx = 0, fy = 0;
-      players.forEach((o) => { if (o === b || !o.alive) return; const dx=o.x-b.x, dy=o.y-b.y, dd=dx*dx+dy*dy;
-        if (dd < best) { if (o.value < b.value*0.9) { nx = o.x; ny = o.y; } else if (o.value > b.value*1.1) { fx -= dx; fy -= dy; } } });
-      tgt.x = Math.max(0, Math.min(WORLD, nx + fx)); tgt.y = Math.max(0, Math.min(WORLD, ny + fy));
-    });
-
-    // move all entities toward targets
-    players.forEach((p, id) => {
-      if (!p.alive) return;
-      const pr = rOf(p.value), tgt = this.targets[id]; if (!tgt) return;
-      const dx = tgt.x - p.x, dy = tgt.y - p.y, dd = Math.hypot(dx, dy) || 1;
-      const speed = 220 * (22 / (pr*0.6 + 18));
-      const stepv = Math.min(speed * d, dd);
-      p.x = Math.max(pr, Math.min(WORLD-pr, p.x + (dx/dd)*stepv));
-      p.y = Math.max(pr, Math.min(WORLD-pr, p.y + (dy/dd)*stepv));
-    });
-
-    // eat tokens
-    const toks = this.state.tokens;
-    players.forEach((p) => { if (!p.alive) return; const pr = rOf(p.value);
-      for (let i = 0; i < toks.length; i++) { const tk = toks[i]; const dx=p.x-tk.x, dy=p.y-tk.y;
-        if (dx*dx+dy*dy < pr*pr) { p.value += tk.v; const nt = this.makeToken(); tk.x=nt.x; tk.y=nt.y; tk.v=nt.v; tk.big=nt.big; } }
-    });
-
-    // player vs player (and bots) — eat smaller
-    const arr = []; players.forEach((p, id) => arr.push([id, p]));
-    for (let i = 0; i < arr.length; i++) for (let j = 0; j < arr.length; j++) {
-      if (i === j) continue; const a = arr[i][1], b = arr[j][1]; if (!a.alive || !b.alive) continue;
-      const ar = rOf(a.value), br = rOf(b.value), dd = Math.hypot(a.x-b.x, a.y-b.y);
-      if (dd < ar - br*0.4 && a.value > b.value*1.05) {
-        a.value += b.value;                 // eater gains
-        b.alive = false; b.value = 0;        // ALL-OR-NOTHING: eaten loses round score
-        if (b.isBot) { setTimeout(() => this.respawn(b), 800); }
-        else { this.clients.forEach(c => { if (c.sessionId === arr[j][0]) c.send("eaten", { by: a.name }); }); setTimeout(() => this.respawn(b), 1200); }
-      }
+  // push entity out of solid obstacles; apply urchin sting; set hidden if small inside an anemone. returns nothing.
+  resolveEnv(p, id, d){
+    let hidden=false;
+    const er=rOf(p.value);
+    for(let i=0;i<this.state.obstacles.length;i++){ const o=this.state.obstacles[i];
+      const dx=p.x-o.x, dy=p.y-o.y, dd=Math.hypot(dx,dy)||1;
+      if(o.kind==="rock"||o.kind==="coral"){ const min=er*0.6+o.r*0.55; if(dd<min){ const push=min-dd; p.x+=dx/dd*push; p.y+=dy/dd*push; } }
+      else if(o.kind==="urchin"){ if(dd<er*0.6+o.r*0.5 && (this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5, p.value-rand(0.1,1.0)); this.cool[id]=1.2; } }
+      else if(o.kind==="anem"){ if(dd<o.r){ if(er < o.r*0.8) hidden=true; else if((this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5, p.value*0.93); this.cool[id]=1.2; } } }
     }
+    p.x=Math.max(er,Math.min(WORLD-er,p.x)); p.y=Math.max(er,Math.min(WORLD-er,p.y));
+    p.hidden=hidden;
+  }
+
+  tick(dt){ const d=dt/1000;
+    this._sec+=d; if(this._sec>=1){ this._sec-=1; this.state.timeLeft=Math.max(0,this.state.timeLeft-1); if(this.state.timeLeft<=0) this.endRound(); }
+    const players=this.state.players;
+    // bots target
+    players.forEach((b,id)=>{ if(!b.isBot||!b.alive)return; const tgt=this.targets[id]; this.botWander[id]=(this.botWander[id]||0)+0.03;
+      let nx=b.x+Math.cos(this.botWander[id])*200, ny=b.y+Math.sin(this.botWander[id]*1.3)*200, best=240*240, fx=0, fy=0;
+      players.forEach(o=>{ if(o===b||!o.alive||o.hidden)return; const dx=o.x-b.x,dy=o.y-b.y,dd=dx*dx+dy*dy;
+        if(dd<best){ if(o.value<b.value*0.9){nx=o.x;ny=o.y;} else if(o.value>b.value*1.1){fx-=dx;fy-=dy;} } });
+      tgt.x=Math.max(0,Math.min(WORLD,nx+fx)); tgt.y=Math.max(0,Math.min(WORLD,ny+fy)); });
+    // move + env
+    players.forEach((p,id)=>{ if(!p.alive)return; if(this.cool[id]>0)this.cool[id]-=d;
+      const pr=rOf(p.value), tgt=this.targets[id]; if(tgt){ const dx=tgt.x-p.x,dy=tgt.y-p.y,dd=Math.hypot(dx,dy)||1, sp=220*(22/(pr*0.6+18)); const st=Math.min(sp*d,dd); p.x+=dx/dd*st; p.y+=dy/dd*st; }
+      this.resolveEnv(p,id,d); });
+    // jellies move + sting
+    for(let i=0;i<this.state.jellies.length;i++){ const j=this.state.jellies[i], v=this.jvel[i];
+      j.x+=v.vx*d; j.y+=v.vy*d; if(j.x<80||j.x>WORLD-80)v.vx*=-1; if(j.y<80||j.y>WORLD-80)v.vy*=-1; j.x=Math.max(80,Math.min(WORLD-80,j.x)); j.y=Math.max(80,Math.min(WORLD-80,j.y));
+      players.forEach((p,id)=>{ if(!p.alive)return; const er=rOf(p.value); if(Math.hypot(p.x-j.x,p.y-j.y)<JELLY_R+er*0.4 && (this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5,p.value-rand(0.5,2)); this.cool[id]=1.2; } }); }
+    // eat tokens
+    const toks=this.state.tokens;
+    players.forEach(p=>{ if(!p.alive)return; const pr=rOf(p.value);
+      for(let i=0;i<toks.length;i++){ const tk=toks[i]; if((p.x-tk.x)**2+(p.y-tk.y)**2<pr*pr){ p.value+=tk.v; const nt=this.makeToken(); tk.x=nt.x;tk.y=nt.y;tk.v=nt.v;tk.big=nt.big; } } });
+    // player vs player (hidden = safe)
+    const arr=[]; players.forEach((p,id)=>arr.push([id,p]));
+    for(let i=0;i<arr.length;i++)for(let j=0;j<arr.length;j++){ if(i===j)continue; const a=arr[i][1],b=arr[j][1]; if(!a.alive||!b.alive||b.hidden)continue;
+      const ar=rOf(a.value),br=rOf(b.value),dd=Math.hypot(a.x-b.x,a.y-b.y);
+      if(dd<ar-br*0.4 && a.value>b.value*1.05){ a.value+=b.value; b.alive=false; b.value=0;
+        if(b.isBot){ setTimeout(()=>this.respawn(b),800); } else { this.clients.forEach(c=>{ if(c.sessionId===arr[j][0]) c.send("eaten",{by:a.name}); }); setTimeout(()=>this.respawn(b),1200); } } }
     this.fillBots();
   }
-
-  endRound() {
-    // bank survivors' tokens + grant participation credits (M1: persist to Supabase via service key)
-    const results = [];
-    this.state.players.forEach((p, id) => { if (!p.isBot) results.push({ id, name: p.name, banked: p.alive ? Math.round(p.value) : 0, survived: p.alive }); });
-    this.persistResults(results);
-    this.broadcast("roundEnd", { results });
-    // reset for next round
-    this.state.timeLeft = ROUND_SECONDS;
-    this.state.players.forEach((p) => { p.value = START_VALUE; p.alive = true; });
-  }
-
-  // TODO M1: write to Supabase with SUPABASE_SECRET_KEY (server-only). Round score -> round_results
-  // (banked, all-or-nothing). Founder Credits granted to ALL participants regardless of score.
-  persistResults(results) {
-    console.log(`[round] ${this.mode} banked:`, results.map(r => `${r.name}:${r.banked}${r.survived?"":"(died)"}`).join(", "));
-  }
+  endRound(){ const results=[]; this.state.players.forEach((p,id)=>{ if(!p.isBot) results.push({id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive}); });
+    this.persistResults(results); this.broadcast("roundEnd",{results}); this.state.timeLeft=ROUND_SECONDS;
+    this.state.players.forEach(p=>{ p.value=START_VALUE; p.alive=true; }); }
+  persistResults(r){ console.log("[round] "+this.mode+" banked:", r.map(x=>x.name+":"+x.banked+(x.survived?"":"(died)")).join(", ")); }
 }
 
 module.exports = { ArenaRoom };
