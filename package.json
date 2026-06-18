@@ -3,16 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "main": "src/index.js",
-  "scripts": {
-    "start": "node src/index.js"
-  },
-  "engines": {
-    "node": ">=18"
-  },
+  "scripts": { "start": "node src/index.js" },
+  "engines": { "node": ">=18" },
   "dependencies": {
+    "colyseus": "^0.15.17",
     "@colyseus/schema": "^2.0.35",
     "@colyseus/ws-transport": "^0.15.2",
-    "colyseus": "^0.15.17",
-    "colyseus.js": "^0.15.28"
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
   }
 }
