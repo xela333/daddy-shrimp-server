@@ -50,7 +50,7 @@ class ArenaRoom extends Room {
       const ang=rand(0,6.283), rad=rand(spread*0.12,spread);
       const x=cx+Math.cos(ang)*rad, y=cy+Math.sin(ang)*rad*0.78, r=rand(rmin,rmax);
       if(x<110||x>WORLD-110||y<110||y>WORLD-110)continue;
-      let ok=true; for(const q of pts){ if(Math.hypot(x-q.x,y-q.y) < (r+q.r)*0.82){ ok=false; break; } }
+      let ok=true; for(const q of pts){ if(Math.hypot(x-q.x,y-q.y) < (r+q.r)*0.58){ ok=false; break; } }
       if(ok) pts.push({x,y,r});
     }
     for(const q of pts){ const ob=new Obstacle(); ob.x=q.x; ob.y=q.y; ob.r=q.r; ob.kind=kind; ob.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(ob); }
@@ -62,8 +62,8 @@ class ArenaRoom extends Room {
     return cs; }
   genObstacles(){
     const drop=(x,y,r,kind,variants)=>{ const o=new Obstacle(); o.x=x;o.y=y;o.r=r;o.kind=kind;o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); };
-    for(const c of this.spreadCenters(13,640)){ this.cluster(c.x,c.y,"anem",3+Math.floor(rand(0,4)),42,64,160,3); } // anemone bouquets
-    for(const c of this.spreadCenters(11,720)){ this.cluster(c.x,c.y,"kelp",5+Math.floor(rand(0,5)),50,82,230,5); } // kelp forests
+    for(const c of this.spreadCenters(13,640)){ this.cluster(c.x,c.y,"anem",3+Math.floor(rand(0,4)),42,64,100,3); } // anemone bouquets
+    for(const c of this.spreadCenters(11,720)){ this.cluster(c.x,c.y,"kelp",5+Math.floor(rand(0,5)),50,82,150,5); } // kelp forests
     for(const c of this.spreadCenters(26,210)) drop(c.x,c.y,rand(30,55),"rock",5);   // scattered, spaced
     for(const c of this.spreadCenters(18,230)) drop(c.x,c.y,rand(26,46),"coral",3);
     for(const c of this.spreadCenters(18,250)) drop(c.x,c.y,rand(24,38),"urchin",2);
