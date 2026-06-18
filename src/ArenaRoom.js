@@ -1,7 +1,7 @@
 const { Room } = require("colyseus");
 const { Schema, MapSchema, ArraySchema, defineTypes } = require("@colyseus/schema");
 
-const WORLD = 2600, TOKENS = 90, BOT_FLOOR = 8, MAX_CLIENTS = 24;
+const WORLD = 5200, TOKENS = 320, BOT_FLOOR = 88, MAX_CLIENTS = 100;
 const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -33,7 +33,7 @@ class ArenaRoom extends Room {
 
     for (let i=0;i<TOKENS;i++) this.state.tokens.push(this.makeToken());
     this.genObstacles();
-    for (let i=0;i<10;i++){ const o=new Jelly(); o.x=rand(200,WORLD-200); o.y=rand(200,WORLD-200); this.state.jellies.push(o); const a=rand(0,6.28); this.jvel.push({vx:Math.cos(a)*40, vy:Math.sin(a)*40, ph:rand(0,6.28)}); }
+    for (let i=0;i<16;i++){ const o=new Jelly(); o.x=rand(200,WORLD-200); o.y=rand(200,WORLD-200); this.state.jellies.push(o); const a=rand(0,6.28); this.jvel.push({vx:Math.cos(a)*40, vy:Math.sin(a)*40, ph:rand(0,6.28)}); }
     this.fillBots();
 
     this.onMessage("input",(client,msg)=>{ const t=this.targets[client.sessionId];
@@ -43,11 +43,30 @@ class ArenaRoom extends Room {
   }
   obst(kind, n, rmin, rmax, variants){ for(let i=0;i<n;i++){ const o=new Obstacle();
     o.x=rand(120,WORLD-120); o.y=rand(120,WORLD-120); o.r=rand(rmin,rmax); o.kind=kind; o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); } }
+  // pack n items around a center as a no-overlap bouquet (slightly wider than tall)
+  cluster(cx,cy,kind,n,rmin,rmax,spread,variants){
+    const pts=[]; let tries=0;
+    while(pts.length<n && tries<n*40){ tries++;
+      const ang=rand(0,6.283), rad=rand(spread*0.12,spread);
+      const x=cx+Math.cos(ang)*rad, y=cy+Math.sin(ang)*rad*0.78, r=rand(rmin,rmax);
+      if(x<110||x>WORLD-110||y<110||y>WORLD-110)continue;
+      let ok=true; for(const q of pts){ if(Math.hypot(x-q.x,y-q.y) < (r+q.r)*0.82){ ok=false; break; } }
+      if(ok) pts.push({x,y,r});
+    }
+    for(const q of pts){ const ob=new Obstacle(); ob.x=q.x; ob.y=q.y; ob.r=q.r; ob.kind=kind; ob.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(ob); }
+  }
+  // spread `count` centers across the map keeping a minimum distance apart
+  spreadCenters(count,minD){ const cs=[]; let tries=0;
+    while(cs.length<count && tries<count*50){ tries++; const x=rand(380,WORLD-380), y=rand(380,WORLD-380);
+      let ok=true; for(const c of cs){ if(Math.hypot(x-c.x,y-c.y)<minD){ ok=false; break; } } if(ok) cs.push({x,y}); }
+    return cs; }
   genObstacles(){
-    const push=(x,y,r,kind,vv)=>{const o=new Obstacle();o.x=x;o.y=y;o.r=r;o.kind=kind;o.v=vv;this.state.obstacles.push(o);};
-    for(let cc=0;cc<6;cc++){const cx=rand(280,WORLD-280),cy=rand(280,WORLD-280),n=3+Math.floor(rand(0,2));for(let k=0;k<n;k++)push(cx+rand(-160,160),cy+rand(-130,130),rand(42,64),"anem",1+Math.floor(Math.random()*3));}
-    for(let cc=0;cc<5;cc++){const cx=rand(280,WORLD-280),cy=rand(280,WORLD-280),n=4+Math.floor(rand(0,4));for(let k=0;k<n;k++)push(cx+rand(-210,210),cy+rand(-170,170),rand(50,82),"kelp",1+Math.floor(Math.random()*5));}
-    this.obst("rock",9,30,55,5); this.obst("coral",7,26,46,3); this.obst("urchin",7,24,38,2);
+    const drop=(x,y,r,kind,variants)=>{ const o=new Obstacle(); o.x=x;o.y=y;o.r=r;o.kind=kind;o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); };
+    for(const c of this.spreadCenters(13,640)){ this.cluster(c.x,c.y,"anem",3+Math.floor(rand(0,4)),42,64,160,3); } // anemone bouquets
+    for(const c of this.spreadCenters(11,720)){ this.cluster(c.x,c.y,"kelp",5+Math.floor(rand(0,5)),50,82,230,5); } // kelp forests
+    for(const c of this.spreadCenters(26,210)) drop(c.x,c.y,rand(30,55),"rock",5);   // scattered, spaced
+    for(const c of this.spreadCenters(18,230)) drop(c.x,c.y,rand(26,46),"coral",3);
+    for(const c of this.spreadCenters(18,250)) drop(c.x,c.y,rand(24,38),"urchin",2);
   }
   makeToken(){ const big=Math.random()<0.12; const tk=new Token(); tk.x=rand(0,WORLD); tk.y=rand(0,WORLD); tk.v=big?rand(1,3):0.1; tk.big=big; return tk; }
   addPlayer(id,name,isBot){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
