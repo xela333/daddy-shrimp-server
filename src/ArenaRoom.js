@@ -43,7 +43,12 @@ class ArenaRoom extends Room {
   }
   obst(kind, n, rmin, rmax, variants){ for(let i=0;i<n;i++){ const o=new Obstacle();
     o.x=rand(120,WORLD-120); o.y=rand(120,WORLD-120); o.r=rand(rmin,rmax); o.kind=kind; o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); } }
-  genObstacles(){ this.obst("rock",16,60,120,5); this.obst("coral",12,50,95,3); this.obst("urchin",12,40,70,2); this.obst("anem",18,75,120,3); this.obst("kelp",22,80,150,5); }
+  genObstacles(){
+    const push=(x,y,r,kind,vv)=>{const o=new Obstacle();o.x=x;o.y=y;o.r=r;o.kind=kind;o.v=vv;this.state.obstacles.push(o);};
+    for(let cc=0;cc<7;cc++){const cx=rand(240,WORLD-240),cy=rand(240,WORLD-240),n=3+Math.floor(rand(0,3));for(let k=0;k<n;k++)push(cx+rand(-130,130),cy+rand(-110,110),rand(75,115),"anem",1+Math.floor(Math.random()*3));}
+    for(let cc=0;cc<6;cc++){const cx=rand(240,WORLD-240),cy=rand(240,WORLD-240),n=5+Math.floor(rand(0,5));for(let k=0;k<n;k++)push(cx+rand(-170,170),cy+rand(-140,140),rand(90,150),"kelp",1+Math.floor(Math.random()*5));}
+    this.obst("rock",10,60,120,5); this.obst("coral",8,55,95,3); this.obst("urchin",8,42,68,2);
+  }
   makeToken(){ const big=Math.random()<0.12; const tk=new Token(); tk.x=rand(0,WORLD); tk.y=rand(0,WORLD); tk.v=big?rand(1,3):0.1; tk.big=big; return tk; }
   addPlayer(id,name,isBot){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
     p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false;
