@@ -2,13 +2,13 @@ const { Room } = require("colyseus");
 const { Schema, MapSchema, ArraySchema, defineTypes } = require("@colyseus/schema");
 
 const WORLD = 2600, TOKENS = 90, BOT_FLOOR = 8, MAX_CLIENTS = 24;
-const ROUND_SECONDS = 180, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
+const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
 const rand = (a, b) => a + Math.random() * (b - a);
 const COLORS = ["#6aa9ff","#a98cff","#5ad1e0","#ffb454","#7bdc8f","#ff8fc7","#ff7d6b"];
 
 class Player extends Schema {}
-defineTypes(Player, { x:"number", y:"number", value:"number", name:"string", color:"string", alive:"boolean", isBot:"boolean", hidden:"boolean" });
+defineTypes(Player, { x:"number", y:"number", value:"number", name:"string", color:"string", alive:"boolean", isBot:"boolean", hidden:"boolean", chomps:"number" });
 class Token extends Schema {}
 defineTypes(Token, { x:"number", y:"number", v:"number", big:"boolean" });
 class Obstacle extends Schema {}
@@ -45,13 +45,13 @@ class ArenaRoom extends Room {
     o.x=rand(120,WORLD-120); o.y=rand(120,WORLD-120); o.r=rand(rmin,rmax); o.kind=kind; o.v=1+Math.floor(Math.random()*variants); this.state.obstacles.push(o); } }
   genObstacles(){
     const push=(x,y,r,kind,vv)=>{const o=new Obstacle();o.x=x;o.y=y;o.r=r;o.kind=kind;o.v=vv;this.state.obstacles.push(o);};
-    for(let cc=0;cc<7;cc++){const cx=rand(240,WORLD-240),cy=rand(240,WORLD-240),n=3+Math.floor(rand(0,3));for(let k=0;k<n;k++)push(cx+rand(-130,130),cy+rand(-110,110),rand(75,115),"anem",1+Math.floor(Math.random()*3));}
-    for(let cc=0;cc<6;cc++){const cx=rand(240,WORLD-240),cy=rand(240,WORLD-240),n=5+Math.floor(rand(0,5));for(let k=0;k<n;k++)push(cx+rand(-170,170),cy+rand(-140,140),rand(90,150),"kelp",1+Math.floor(Math.random()*5));}
-    this.obst("rock",10,60,120,5); this.obst("coral",8,55,95,3); this.obst("urchin",8,42,68,2);
+    for(let cc=0;cc<6;cc++){const cx=rand(280,WORLD-280),cy=rand(280,WORLD-280),n=3+Math.floor(rand(0,2));for(let k=0;k<n;k++)push(cx+rand(-160,160),cy+rand(-130,130),rand(42,64),"anem",1+Math.floor(Math.random()*3));}
+    for(let cc=0;cc<5;cc++){const cx=rand(280,WORLD-280),cy=rand(280,WORLD-280),n=4+Math.floor(rand(0,4));for(let k=0;k<n;k++)push(cx+rand(-210,210),cy+rand(-170,170),rand(50,82),"kelp",1+Math.floor(Math.random()*5));}
+    this.obst("rock",9,30,55,5); this.obst("coral",7,26,46,3); this.obst("urchin",7,24,38,2);
   }
   makeToken(){ const big=Math.random()<0.12; const tk=new Token(); tk.x=rand(0,WORLD); tk.y=rand(0,WORLD); tk.v=big?rand(1,3):0.1; tk.big=big; return tk; }
   addPlayer(id,name,isBot){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
-    p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false;
+    p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false; p.chomps=0;
     this.state.players.set(id,p); this.targets[id]={x:p.x,y:p.y}; this.cool[id]=0; return p; }
   fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
     while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; n++; } }
@@ -99,13 +99,13 @@ class ArenaRoom extends Room {
     const arr=[]; players.forEach((p,id)=>arr.push([id,p]));
     for(let i=0;i<arr.length;i++)for(let j=0;j<arr.length;j++){ if(i===j)continue; const a=arr[i][1],b=arr[j][1]; if(!a.alive||!b.alive||b.hidden)continue;
       const ar=rOf(a.value),br=rOf(b.value),dd=Math.hypot(a.x-b.x,a.y-b.y);
-      if(dd<ar-br*0.4 && a.value>b.value*1.05){ a.value+=b.value; b.alive=false; b.value=0;
+      if(dd<ar-br*0.4 && a.value>b.value*1.05){ a.value+=b.value; a.chomps=(a.chomps||0)+1; b.alive=false; b.value=0;
         if(b.isBot){ setTimeout(()=>this.respawn(b),800); } else { this.clients.forEach(c=>{ if(c.sessionId===arr[j][0]) c.send("eaten",{by:a.name}); }); setTimeout(()=>this.respawn(b),1200); } } }
     this.fillBots();
   }
   endRound(){ const results=[]; this.state.players.forEach((p,id)=>{ if(!p.isBot) results.push({id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive}); });
     this.persistResults(results); this.broadcast("roundEnd",{results}); this.state.timeLeft=ROUND_SECONDS;
-    this.state.players.forEach(p=>{ p.value=START_VALUE; p.alive=true; }); }
+    this.state.players.forEach(p=>{ p.value=START_VALUE; p.alive=true; p.chomps=0; }); }
   persistResults(r){ console.log("[round] "+this.mode+" banked:", r.map(x=>x.name+":"+x.banked+(x.survived?"":"(died)")).join(", ")); }
 }
 
