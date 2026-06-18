@@ -29,7 +29,7 @@ class ArenaRoom extends Room {
     this.state.jellies = new ArraySchema();
     this.state.world = WORLD;
     this.state.timeLeft = ROUND_SECONDS;
-    this.targets = {}; this.botWander = {}; this.jvel = []; this.cool = {};
+    this.targets = {}; this.botWander = {}; this.jvel = []; this.cool = {}; this.bumpCd = {};
 
     for (let i=0;i<TOKENS;i++) this.state.tokens.push(this.makeToken());
     this.genObstacles();
@@ -55,17 +55,18 @@ class ArenaRoom extends Room {
   respawn(p){ p.alive=true; p.value=START_VALUE; p.x=rand(60,WORLD-60); p.y=rand(60,WORLD-60); }
 
   // push entity out of solid obstacles; apply urchin sting; set hidden if small inside an anemone. returns nothing.
+  hit(id,p,amt,kind){ if((this.cool[id]||0)>0)return; const before=p.value; p.value=Math.max(START_VALUE*0.5,p.value-amt); const lost=before-p.value; this.cool[id]=1.2;
+    if(!p.isBot && lost>0.001) this.clients.forEach(c=>{ if(c.sessionId===id) c.send("sting",{amount:lost,kind:kind}); }); }
+  bump(id,p){ if(p.isBot||(this.bumpCd[id]||0)>0)return; this.bumpCd[id]=0.35; this.clients.forEach(c=>{ if(c.sessionId===id) c.send("bump",{}); }); }
   resolveEnv(p, id, d){
-    let hidden=false;
-    const er=rOf(p.value);
+    let hidden=false; const er=rOf(p.value);
     for(let i=0;i<this.state.obstacles.length;i++){ const o=this.state.obstacles[i];
       const dx=p.x-o.x, dy=p.y-o.y, dd=Math.hypot(dx,dy)||1;
-      if(o.kind==="rock"||o.kind==="coral"){ const min=er*0.6+o.r*0.55; if(dd<min){ const push=min-dd; p.x+=dx/dd*push; p.y+=dy/dd*push; } }
-      else if(o.kind==="urchin"){ if(dd<er*0.6+o.r*0.5 && (this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5, p.value-rand(0.1,1.0)); this.cool[id]=1.2; } }
-      else if(o.kind==="anem"){ if(dd<o.r){ if(er < o.r*0.8) hidden=true; else if((this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5, p.value*0.93); this.cool[id]=1.2; } } }
+      if(o.kind==="rock"||o.kind==="coral"){ const min=er*0.75+o.r*0.7; if(dd<min){ const push=min-dd; p.x+=dx/dd*push; p.y+=dy/dd*push; this.bump(id,p); } }
+      else if(o.kind==="urchin"){ if(dd<er*0.7+o.r*0.55) this.hit(id,p,rand(0.1,1.0),"urchin"); }
+      else if(o.kind==="anem"){ if(dd<o.r){ if(er<o.r*0.8) hidden=true; else this.hit(id,p,p.value*0.07,"anem"); } }
     }
-    p.x=Math.max(er,Math.min(WORLD-er,p.x)); p.y=Math.max(er,Math.min(WORLD-er,p.y));
-    p.hidden=hidden;
+    p.x=Math.max(er,Math.min(WORLD-er,p.x)); p.y=Math.max(er,Math.min(WORLD-er,p.y)); p.hidden=hidden;
   }
 
   tick(dt){ const d=dt/1000;
@@ -78,13 +79,13 @@ class ArenaRoom extends Room {
         if(dd<best){ if(o.value<b.value*0.9){nx=o.x;ny=o.y;} else if(o.value>b.value*1.1){fx-=dx;fy-=dy;} } });
       tgt.x=Math.max(0,Math.min(WORLD,nx+fx)); tgt.y=Math.max(0,Math.min(WORLD,ny+fy)); });
     // move + env
-    players.forEach((p,id)=>{ if(!p.alive)return; if(this.cool[id]>0)this.cool[id]-=d;
+    players.forEach((p,id)=>{ if(!p.alive)return; if(this.cool[id]>0)this.cool[id]-=d; if(this.bumpCd[id]>0)this.bumpCd[id]-=d;
       const pr=rOf(p.value), tgt=this.targets[id]; if(tgt){ const dx=tgt.x-p.x,dy=tgt.y-p.y,dd=Math.hypot(dx,dy)||1, sp=220*(22/(pr*0.6+18)); const st=Math.min(sp*d,dd); p.x+=dx/dd*st; p.y+=dy/dd*st; }
       this.resolveEnv(p,id,d); });
     // jellies move + sting
     for(let i=0;i<this.state.jellies.length;i++){ const j=this.state.jellies[i], v=this.jvel[i];
       j.x+=v.vx*d; j.y+=v.vy*d; if(j.x<80||j.x>WORLD-80)v.vx*=-1; if(j.y<80||j.y>WORLD-80)v.vy*=-1; j.x=Math.max(80,Math.min(WORLD-80,j.x)); j.y=Math.max(80,Math.min(WORLD-80,j.y));
-      players.forEach((p,id)=>{ if(!p.alive)return; const er=rOf(p.value); if(Math.hypot(p.x-j.x,p.y-j.y)<JELLY_R+er*0.4 && (this.cool[id]||0)<=0){ p.value=Math.max(START_VALUE*0.5,p.value-rand(0.5,2)); this.cool[id]=1.2; } }); }
+      players.forEach((p,id)=>{ if(!p.alive)return; const er=rOf(p.value); if(Math.hypot(p.x-j.x,p.y-j.y)<JELLY_R+er*0.4) this.hit(id,p,rand(0.5,2),'jelly'); }); }
     // eat tokens
     const toks=this.state.tokens;
     players.forEach(p=>{ if(!p.alive)return; const pr=rOf(p.value);
