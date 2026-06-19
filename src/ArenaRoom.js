@@ -1,6 +1,14 @@
 const { Room } = require("colyseus");
 const { Schema, MapSchema, ArraySchema, defineTypes } = require("@colyseus/schema");
 
+let supa=null;
+try{ const { createClient } = require("@supabase/supabase-js");
+  if(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY){
+    supa=createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth:{ persistSession:false, autoRefreshToken:false } });
+    console.log("[supabase] persistence ON");
+  } else console.log("[supabase] env vars not set — running without accounts persistence");
+}catch(e){ console.log("[supabase] supabase-js not available:", e.message); }
+
 const WORLD = 3600, TOKENS = 200, BOT_FLOOR = 26, MAX_CLIENTS = 60;
 const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
@@ -74,7 +82,8 @@ class ArenaRoom extends Room {
     this.state.players.set(id,p); this.targets[id]={x:p.x,y:p.y}; this.cool[id]=0; return p; }
   fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
     while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; this.botPhase[id]=Math.floor(Math.random()*3); n++; } }
-  onJoin(client,options){ this.addPlayer(client.sessionId, options&&options.name, false, options&&options.color); }
+  async onJoin(client,options){ const p=this.addPlayer(client.sessionId, options&&options.name, false, options&&options.color);
+    if(supa && options && options.token){ try{ const { data } = await supa.auth.getUser(options.token); if(data && data.user) p.userId=data.user.id; }catch(e){} } }
   onLeave(client){ this.state.players.delete(client.sessionId); delete this.targets[client.sessionId]; delete this.cool[client.sessionId]; }
   respawn(p){ p.alive=true; p.value=START_VALUE; p.x=rand(60,WORLD-60); p.y=rand(60,WORLD-60); }
 
