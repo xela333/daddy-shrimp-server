@@ -5,7 +5,7 @@ const WORLD = 3600, TOKENS = 200, BOT_FLOOR = 26, MAX_CLIENTS = 60;
 const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
 const rand = (a, b) => a + Math.random() * (b - a);
-const COLORS = ["#6aa9ff","#a98cff","#5ad1e0","#ffb454","#7bdc8f","#ff8fc7","#ff7d6b"];
+const COLORS = ["#6aa9ff","#a98cff","#5ad1e0","#ffb454","#7bdc8f","#ff8fc7","#ff7d6b","#ffe66d","#b0ff6a","#7d7dff"];
 
 class Player extends Schema {}
 defineTypes(Player, { x:"number", y:"number", value:"number", name:"string", color:"string", alive:"boolean", isBot:"boolean", hidden:"boolean", chomps:"number" });
@@ -69,12 +69,12 @@ class ArenaRoom extends Room {
     for(const c of this.spreadCenters(11,240)) drop(c.x,c.y,rand(24,38),"urchin",2);
   }
   makeToken(){ const big=Math.random()<0.12; const tk=new Token(); tk.x=rand(0,WORLD); tk.y=rand(0,WORLD); tk.v=big?rand(1,3):0.1; tk.big=big; return tk; }
-  addPlayer(id,name,isBot){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
-    p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false; p.chomps=0;
+  addPlayer(id,name,isBot,color){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
+    p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=(color&&COLORS.includes(color))?color:COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false; p.chomps=0;
     this.state.players.set(id,p); this.targets[id]={x:p.x,y:p.y}; this.cool[id]=0; return p; }
   fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
     while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; this.botPhase[id]=Math.floor(Math.random()*3); n++; } }
-  onJoin(client,options){ this.addPlayer(client.sessionId, options&&options.name, false); }
+  onJoin(client,options){ this.addPlayer(client.sessionId, options&&options.name, false, options&&options.color); }
   onLeave(client){ this.state.players.delete(client.sessionId); delete this.targets[client.sessionId]; delete this.cool[client.sessionId]; }
   respawn(p){ p.alive=true; p.value=START_VALUE; p.x=rand(60,WORLD-60); p.y=rand(60,WORLD-60); }
 
@@ -123,9 +123,11 @@ class ArenaRoom extends Room {
         if(b.isBot){ setTimeout(()=>this.respawn(b),800); } else { this.clients.forEach(c=>{ if(c.sessionId===arr[j][0]) c.send("eaten",{by:a.name}); }); setTimeout(()=>this.respawn(b),1200); } } }
     this.fillBots();
   }
-  endRound(){ const results=[]; this.state.players.forEach((p,id)=>{ if(!p.isBot) results.push({id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive}); });
+  endRound(){ const players=this.state.players; let total=0; players.forEach(()=>total++);
+    const results=[]; players.forEach((p,id)=>{ if(p.isBot)return; let greater=0; players.forEach(o=>{ if(o.value>p.value) greater++; });
+      results.push({id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive,chomps:p.chomps||0,placement:greater+1,total}); });
     this.persistResults(results); this.broadcast("roundEnd",{results}); this.state.timeLeft=ROUND_SECONDS;
-    this.state.players.forEach(p=>{ p.value=START_VALUE; p.alive=true; p.chomps=0; }); }
+    players.forEach(p=>{ p.value=START_VALUE; p.alive=true; p.chomps=0; }); }
   persistResults(r){ console.log("[round] "+this.mode+" banked:", r.map(x=>x.name+":"+x.banked+(x.survived?"":"(died)")).join(", ")); }
 }
 
