@@ -138,12 +138,12 @@ class ArenaRoom extends Room {
   async endRound(){ const players=this.state.players; let total=0; players.forEach(()=>total++);
     const results=[]; const humans=[];
     players.forEach((p,id)=>{ if(p.isBot)return; let greater=0; players.forEach(o=>{ if(o.value>p.value) greater++; });
-      const r={id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive,chomps:p.chomps||0,placement:greater+1,total,earned:0,creditTotal:null};
+      const r={id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive,chomps:p.chomps||0,placement:greater+1,total,earned:0,creditTotal:null,streak:0,streakBonus:0};
       results.push(r); humans.push({p,r}); });
     console.log("[endRound] humans:"+humans.length+" signedIn:"+humans.filter(h=>!!h.p.userId).length);
     if(supa){ await Promise.all(humans.map(async ({p,r})=>{ if(!p.userId)return;
       try{ const { data, error } = await supa.rpc("record_round",{ p_user:p.userId, p_banked:r.banked, p_chomps:r.chomps, p_size:r.banked, p_placement:r.placement, p_survived:r.survived });
-        if(!error && data){ r.earned=data.earned||0; r.creditTotal=(data.total==null?null:data.total); } }catch(e){} })); }
+        if(!error && data){ r.earned=data.earned||0; r.creditTotal=(data.total==null?null:data.total); r.streak=data.streak||0; r.streakBonus=data.streak_bonus||0; } }catch(e){} })); }
     this.persistResults(results); this.broadcast("roundEnd",{results}); this.state.timeLeft=ROUND_SECONDS;
     players.forEach(p=>{ p.value=START_VALUE; p.alive=true; p.chomps=0; }); }
   persistResults(r){ console.log("[round] "+this.mode+" banked:", r.map(x=>x.name+":"+x.banked+(x.survived?"":"(died)")).join(", ")); }
