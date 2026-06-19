@@ -83,7 +83,10 @@ class ArenaRoom extends Room {
   fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
     while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; this.botPhase[id]=Math.floor(Math.random()*3); n++; } }
   async onJoin(client,options){ const p=this.addPlayer(client.sessionId, options&&options.name, false, options&&options.color);
-    if(supa && options && options.token){ try{ const { data } = await supa.auth.getUser(options.token); if(data && data.user) p.userId=data.user.id; }catch(e){} } }
+    if(supa && options && options.token){ try{ const { data, error } = await supa.auth.getUser(options.token);
+        if(data && data.user){ p.userId=data.user.id; console.log("[join] verified user", p.userId); }
+        else console.log("[join] token present but no user:", error && error.message); }catch(e){ console.log("[join] getUser error:", e.message); } }
+      else console.log("[join] guest/no-token (supa="+(!!supa)+", token="+(!!(options&&options.token))+")"); }
   onLeave(client){ this.state.players.delete(client.sessionId); delete this.targets[client.sessionId]; delete this.cool[client.sessionId]; }
   respawn(p){ p.alive=true; p.value=START_VALUE; p.x=rand(60,WORLD-60); p.y=rand(60,WORLD-60); }
 
@@ -132,9 +135,15 @@ class ArenaRoom extends Room {
         if(b.isBot){ setTimeout(()=>this.respawn(b),800); } else { this.clients.forEach(c=>{ if(c.sessionId===arr[j][0]) c.send("eaten",{by:a.name}); }); setTimeout(()=>this.respawn(b),1200); } } }
     this.fillBots();
   }
-  endRound(){ const players=this.state.players; let total=0; players.forEach(()=>total++);
-    const results=[]; players.forEach((p,id)=>{ if(p.isBot)return; let greater=0; players.forEach(o=>{ if(o.value>p.value) greater++; });
-      results.push({id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive,chomps:p.chomps||0,placement:greater+1,total}); });
+  async endRound(){ const players=this.state.players; let total=0; players.forEach(()=>total++);
+    const results=[]; const humans=[];
+    players.forEach((p,id)=>{ if(p.isBot)return; let greater=0; players.forEach(o=>{ if(o.value>p.value) greater++; });
+      const r={id,name:p.name,banked:p.alive?Math.round(p.value*100)/100:0,survived:p.alive,chomps:p.chomps||0,placement:greater+1,total,earned:0,creditTotal:null};
+      results.push(r); humans.push({p,r}); });
+    console.log("[endRound] humans:"+humans.length+" signedIn:"+humans.filter(h=>!!h.p.userId).length);
+    if(supa){ await Promise.all(humans.map(async ({p,r})=>{ if(!p.userId)return;
+      try{ const { data, error } = await supa.rpc("record_round",{ p_user:p.userId, p_banked:r.banked, p_chomps:r.chomps, p_size:r.banked, p_placement:r.placement, p_survived:r.survived });
+        if(!error && data){ r.earned=data.earned||0; r.creditTotal=(data.total==null?null:data.total); } }catch(e){} })); }
     this.persistResults(results); this.broadcast("roundEnd",{results}); this.state.timeLeft=ROUND_SECONDS;
     players.forEach(p=>{ p.value=START_VALUE; p.alive=true; p.chomps=0; }); }
   persistResults(r){ console.log("[round] "+this.mode+" banked:", r.map(x=>x.name+":"+x.banked+(x.survived?"":"(died)")).join(", ")); }
