@@ -9,6 +9,12 @@ try{ const { createClient } = require("@supabase/supabase-js");
   } else console.log("[supabase] env vars not set — running without accounts persistence");
 }catch(e){ console.log("[supabase] supabase-js not available:", e.message); }
 
+// keep the free Render server warm so players connect instantly (no 30-60s cold start)
+try{ const SELF = process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || "https://daddy-shrimp-server.onrender.com";
+  setInterval(()=>{ try{ fetch(SELF).catch(()=>{}); }catch(e){} }, 10*60*1000);
+  console.log("[keepalive] self-ping every 10m -> "+SELF);
+}catch(e){ console.log("[keepalive] disabled:", e.message); }
+
 const WORLD = 3600, TOKENS = 200, BOT_FLOOR = 26, MAX_CLIENTS = 60;
 const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
