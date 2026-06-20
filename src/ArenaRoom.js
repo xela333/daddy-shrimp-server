@@ -15,8 +15,8 @@ try{ const SELF = process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || "ht
   console.log("[keepalive] self-ping every 10m -> "+SELF);
 }catch(e){ console.log("[keepalive] disabled:", e.message); }
 
-const WORLD = 3600, TOKENS = 200, BOT_FLOOR = 26, MAX_CLIENTS = 60;
-const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 20, JELLY_R = 46;
+const WORLD = 3600, TOKENS = 200, BOT_FLOOR = 26, MAX_CLIENTS = 80;
+const ROUND_SECONDS = 120, START_VALUE = 4, TICK_HZ = 25, JELLY_R = 46;
 const rOf = v => 9 + Math.sqrt(Math.max(v, 0)) * 6;
 const rand = (a, b) => a + Math.random() * (b - a);
 const COLORS = ["#6aa9ff","#a98cff","#5ad1e0","#ffb454","#7bdc8f","#ff8fc7","#ff7d6b","#ffe66d","#b0ff6a","#7d7dff"];
@@ -86,8 +86,12 @@ class ArenaRoom extends Room {
   addPlayer(id,name,isBot,color){ const p=new Player(); p.x=rand(WORLD*0.3,WORLD*0.7); p.y=rand(WORLD*0.3,WORLD*0.7);
     p.value=START_VALUE; p.name=(name||(isBot?"Shrimpbot":"Shrimp")).slice(0,16); p.color=(color&&COLORS.includes(color))?color:COLORS[(Math.random()*COLORS.length)|0]; p.alive=true; p.isBot=!!isBot; p.hidden=false; p.chomps=0;
     this.state.players.set(id,p); this.targets[id]={x:p.x,y:p.y}; this.cool[id]=0; return p; }
-  fillBots(){ let n=0; this.state.players.forEach(()=>n++); let bi=0;
-    while(n<BOT_FLOOR){ const id="bot_"+(bi++)+"_"+(Date.now()%9999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; this.botPhase[id]=Math.floor(Math.random()*3); n++; } }
+  fillBots(){ let humans=0; const botIds=[];
+    this.state.players.forEach((p,id)=>{ if(p.isBot) botIds.push(id); else humans++; });
+    const desired = Math.max(0, BOT_FLOOR - humans);          // fewer bots as real players show up
+    let bi=0;
+    while(botIds.length < desired){ const id="bot_"+(bi++)+"_"+(Date.now()%99999); this.addPlayer(id,null,true); this.botWander[id]=Math.random()*6.28; this.botPhase[id]=Math.floor(Math.random()*3); botIds.push(id); }
+    while(botIds.length > desired){ const id=botIds.pop(); this.state.players.delete(id); delete this.targets[id]; delete this.cool[id]; delete this.botWander[id]; delete this.botPhase[id]; delete this.bumpCd[id]; } }
   async onJoin(client,options){ const p=this.addPlayer(client.sessionId, options&&options.name, false, options&&options.color);
     if(supa && options && options.token){ try{ const { data, error } = await supa.auth.getUser(options.token);
         if(data && data.user){ p.userId=data.user.id; console.log("[join] verified user", p.userId); }
